@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>STE Reply Viewer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+<style>
+  :root {
+    --bg: #f4f1ea; --surface: #fffdf8; --ink: #1d1b17; --muted: #6b655a;
+    --line: #d9d2c3; --accent: #b45309; --accent-soft: #fde9c8;
+    --ok: #15803d; --bad: #b91c1c; --flag: #fff1d6; --code-bg: #efeadf;
+    --sans: "IBM Plex Sans", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15140f; --surface: #1e1c17; --ink: #ece6d8; --muted: #a39b8a;
+      --line: #38342b; --accent: #f59e0b; --accent-soft: #3a2a0f;
+      --ok: #4ade80; --bad: #f87171; --flag: #33270f; --code-bg: #26231c;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #15140f; --surface: #1e1c17; --ink: #ece6d8; --muted: #a39b8a;
+    --line: #38342b; --accent: #f59e0b; --accent-soft: #3a2a0f;
+    --ok: #4ade80; --bad: #f87171; --flag: #33270f; --code-bg: #26231c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 var(--sans); }
+  header {
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+    padding: 14px 16px; border-bottom: 3px solid var(--accent); background: var(--surface);
+  }
+  .brand { font: 600 13px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+  .brand b { color: var(--accent); }
+  .tools { display: flex; flex-wrap: wrap; gap: 8px; }
+  button, label.btn {
+    font: 500 13px var(--mono); padding: 7px 12px; border: 1px solid var(--line);
+    background: var(--bg); color: var(--ink); border-radius: 2px; cursor: pointer;
+  }
+  button:hover, label.btn:hover { border-color: var(--accent); }
+  button:focus-visible, label.btn:focus-within, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+  input[type=file] { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; max-width: 1180px; margin: 0 auto; padding: 24px 16px 64px; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  #reply { background: var(--surface); border: 1px solid var(--line); padding: clamp(18px, 4vw, 40px); min-height: 50vh; overflow-wrap: anywhere; }
+  #reply h1, #reply h2, #reply h3 { line-height: 1.25; margin: 1.4em 0 .5em; }
+  #reply h2 { font-size: 13px; font-family: var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--accent); border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+  #reply > :first-child { margin-top: 0; }
+  #reply code { font: .9em var(--mono); background: var(--code-bg); padding: .1em .35em; }
+  #reply pre { background: var(--code-bg); padding: 14px; overflow-x: auto; border-left: 3px solid var(--line); }
+  #reply pre code { background: none; padding: 0; }
+  #reply table { border-collapse: collapse; width: 100%; display: block; overflow-x: auto; }
+  #reply th, #reply td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  #reply blockquote { margin: 0; padding-left: 14px; border-left: 3px solid var(--accent); color: var(--muted); }
+  .flagged { background: var(--flag); box-shadow: -3px 0 0 var(--accent); }
+  body.hide-flags .flagged { background: none; box-shadow: none; }
+  .empty { color: var(--muted); }
+  aside { position: sticky; top: 16px; align-self: start; display: grid; gap: 16px; }
+  .panel { background: var(--surface); border: 1px solid var(--line); padding: 16px; }
+  .panel h3 { margin: 0 0 10px; font: 600 12px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  .score { font: 700 48px/1 var(--mono); }
+  .score.ok { color: var(--ok); } .score.bad { color: var(--bad); }
+  .meter { height: 6px; background: var(--line); margin: 12px 0 6px; position: relative; }
+  .meter i { position: absolute; inset: 0 auto 0 0; background: var(--accent); }
+  .meter::after { content: ""; position: absolute; left: 90%; top: -4px; bottom: -4px; width: 2px; background: var(--ink); }
+  .small { font-size: 13px; color: var(--muted); }
+  #findings { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; max-height: 50vh; overflow: auto; }
+  #findings li { font-size: 13px; border-left: 2px solid var(--accent); padding-left: 8px; }
+  #findings .rule { font: 600 11px var(--mono); color: var(--accent); text-transform: uppercase; }
+  textarea { width: 100%; min-height: 160px; font: 13px/1.5 var(--mono); background: var(--bg); color: var(--ink); border: 1px solid var(--line); padding: 8px; }
+  .drop { outline: 2px dashed var(--accent); outline-offset: -8px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><b>STE</b> Reply Viewer</div>
+  <div class="tools">
+    <label class="btn">Open .md<input type="file" id="file" accept=".md,.markdown,.txt"></label>
+    <button id="toggleFlags" aria-pressed="true">Highlight findings</button>
+    <button id="toggleTheme">Theme</button>
+  </div>
+</header>
+<main>
+  <article id="reply" aria-live="polite"><p class="empty">Open a Markdown reply, drop a file here, or paste text in the panel.</p></article>
+  <aside>
+    <section class="panel" aria-labelledby="scoreHead">
+      <h3 id="scoreHead">STE score</h3>
+      <div id="score" class="score">--</div>
+      <div class="meter"><i id="meter" style="width:0"></i></div>
+      <div id="scoreText" class="small">Target: 90% of prose sentences with no finding.</div>
+    </section>
+    <section class="panel" aria-labelledby="findHead">
+      <h3 id="findHead">Findings</h3>
+      <ul id="findings"></ul>
+    </section>
+    <section class="panel" aria-labelledby="pasteHead">
+      <h3 id="pasteHead">Paste Markdown</h3>
+      <textarea id="paste" aria-label="Markdown source" placeholder="## Result&#10;I fixed the bug."></textarea>
+    </section>
+    <p class="small">Browser checks are a quick estimate. Use <code>tools/ste_score.py</code> for the gate. Full ASD-STE100 compliance is not verified.</p>
+  </aside>
+</main>
+<script>
+(() => {
+  const TARGET = 90;
+  const LIMIT = 25;
+  const RULES = [
+    ["semicolon", /;/],
+    ["contraction", /\b\w+(?:n['’]t|['’](?:ve|re|ll|m|d))\b|\b(?:it|that|there|what|here|let|who)['’]s\b/i],
+    ["progressive", /\b(?:am|is|are|was|were|be|been)\s+(?:\w+ly\s+)?\w+ing\b/i],
+    ["perfect-tense", /\b(?:has|have|had)\s+(?:not\s+|already\s+|just\s+)?\w+(?:ed|en|wn|ne|un)\b/i],
+    ["passive-voice", /\b(?:is|are|was|were|be|been|being)\s+(?:\w+ly\s+)?\w+(?:ed|en)\b/i],
+    ["marketing-word", /\b(?:robust|seamless(?:ly)?|powerful|leverag\w*|cutting-edge|world-class|blazing|effortless(?:ly)?|best-in-class)\b/i],
+    ["phrasal-verb", /\b(?:kick(?:s|ed)? off|set(?:s)? up|figure(?:s|d)? out|(?:go(?:es)?|went|gone) ahead|carr(?:y|ies|ied) out|find(?:s)? out|look(?:s|ed)? into)\b/i],
+  ];
+  const $ = (id) => document.getElementById(id);
+  const reply = $("reply");
+
+  function proseText(el) {
+    const clone = el.cloneNode(true);
+    clone.querySelectorAll("code, pre, ul, ol, table").forEach((n) => n.replaceWith(" X "));
+    return clone.textContent.replace(/\s+/g, " ").trim();
+  }
+
+  function check(sentence) {
+    const words = sentence.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+    const hits = RULES.filter(([, re]) => re.test(sentence)).map(([name]) => name);
+    if (words > LIMIT) hits.push(`long-sentence (${words})`);
+    return hits;
+  }
+
+  function score() {
+    const findings = [];
+    let total = 0;
+    reply.querySelectorAll("p, li, td, blockquote > p").forEach((el) => {
+      el.classList.remove("flagged");
+      const sentences = proseText(el).split(/(?<=[.!?])\s+/).filter((s) => /\p{L}/u.test(s));
+      sentences.forEach((s) => {
+        total += 1;
+        const hits = check(s);
+        if (hits.length) { findings.push({ s, hits }); el.classList.add("flagged"); }
+      });
+    });
+    const pct = total ? Math.round(1000 * (total - findings.length) / total) / 10 : 100;
+    $("score").textContent = total ? `${pct}%` : "--";
+    $("score").className = "score " + (pct >= TARGET ? "ok" : "bad");
+    $("meter").style.width = `${pct}%`;
+    $("scoreText").textContent = `${total - findings.length}/${total} sentences pass. Target: ${TARGET}%.`;
+    const list = $("findings");
+    list.replaceChildren(...findings.map(({ s, hits }) => {
+      const li = document.createElement("li");
+      const rule = document.createElement("div");
+      rule.className = "rule";
+      rule.textContent = hits.join(" · ");
+      li.append(rule, document.createTextNode(s));
+      return li;
+    }));
+    if (!findings.length) list.innerHTML = '<li class="small">No findings.</li>';
+  }
+
+  function render(md) {
+    if (!md.trim()) return;
+    reply.innerHTML = DOMPurify.sanitize(marked.parse(md, { gfm: true }));
+    score();
+  }
+
+  function readFile(file) {
+    if (!file) return;
+    file.text().then((t) => { $("paste").value = t; render(t); })
+      .catch((e) => { reply.textContent = `Cannot read the file: ${e.message}`; });
+  }
+
+  $("file").addEventListener("change", (e) => readFile(e.target.files[0]));
+  $("paste").addEventListener("input", (e) => render(e.target.value));
+  $("toggleFlags").addEventListener("click", (e) => {
+    const on = e.currentTarget.getAttribute("aria-pressed") !== "true";
+    e.currentTarget.setAttribute("aria-pressed", String(on));
+    document.body.classList.toggle("hide-flags", !on);
+  });
+  $("toggleTheme").addEventListener("click", () => {
+    const root = document.documentElement;
+    const dark = root.dataset.theme ? root.dataset.theme === "dark"
+      : matchMedia("(prefers-color-scheme: dark)").matches;
+    root.dataset.theme = dark ? "light" : "dark";
+  });
+  ["dragover", "dragleave", "drop"].forEach((type) => reply.addEventListener(type, (e) => {
+    e.preventDefault();
+    reply.classList.toggle("drop", type === "dragover");
+    if (type === "drop") readFile(e.dataTransfer.files[0]);
+  }));
+
+  const src = new URLSearchParams(location.search).get("src");
+  if (src) {
+    fetch(src).then((r) => { if (!r.ok) throw new Error(r.status); return r.text(); })
+      .then((t) => { $("paste").value = t; render(t); })
+      .catch((e) => { reply.textContent = `Cannot load ${src}: ${e.message}`; });
+  }
+})();
+</script>
+</body>
+</html>
